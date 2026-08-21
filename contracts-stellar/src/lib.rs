@@ -13,6 +13,14 @@ pub const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960;
 /// ~30 days = 518,400 ledgers
 pub const PERSISTENT_BUMP_AMOUNT: u32 = 518_400;
 
+/// Block-height (ledger sequence) buffer defaults: a floor on how many ledgers must also
+/// elapse since the last proof of life, so a validator cannot unlock post-death release by
+/// drifting the ledger timestamp alone without real ledgers (and thus real time) passing.
+/// ~1 day = 17,280 ledgers
+pub const DEFAULT_MIN_LEDGER_DELTA: u32 = 17_280;
+/// ~365 days = 6,307,200 ledgers
+pub const MAX_LEDGER_DELTA: u32 = 6_307_200;
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessLevel {
@@ -91,6 +99,8 @@ pub struct VaultReleaseState {
     pub emergency_mode: bool,
     pub inactivity_period: u64,
     pub last_proof_of_life: u64,
+    pub min_block_delta: u32,
+    pub last_proof_of_life_ledger: u32,
 }
 
 #[contracttype]
@@ -314,6 +324,8 @@ impl SpooVaultStellar {
             emergency_mode: false,
             inactivity_period: 30 * 24 * 60 * 60, // 30 days in seconds
             last_proof_of_life: env.ledger().timestamp(),
+            min_block_delta: DEFAULT_MIN_LEDGER_DELTA,
+            last_proof_of_life_ledger: env.ledger().sequence(),
         };
         let release_key = DataKey::ReleaseState(next_vault_id);
         env.storage().persistent().set(&release_key, &release_state);
@@ -624,6 +636,7 @@ impl SpooVaultStellar {
             .get(&rel_key)
             .unwrap();
         state.last_proof_of_life = env.ledger().timestamp();
+        state.last_proof_of_life_ledger = env.ledger().sequence();
         env.storage().persistent().set(&rel_key, &state);
 
         Self::bump_persistent(&env, &vault_key);
@@ -660,6 +673,45 @@ impl SpooVaultStellar {
             .get(&rel_key)
             .unwrap();
         state.inactivity_period = inactivity_period;
+        env.storage().persistent().set(&rel_key, &state);
+
+        Self::bump_persistent(&env, &vault_key);
+        Self::bump_persistent(&env, &rel_key);
+    }
+
+    /// Configure the minimum number of ledgers that must also elapse since the last proof
+    /// of life before post-death release can unlock, alongside the timestamp threshold.
+    /// Mitigates a validator manipulating the ledger timestamp to unlock post-death release
+    /// without real ledgers having passed.
+    pub fn configure_block_height_buffer(
+        env: Env,
+        owner: Address,
+        vault_id: u64,
+        min_block_delta: u32,
+    ) {
+        owner.require_auth();
+        Self::bump_instance(&env);
+
+        let vault_key = DataKey::Vault(vault_id);
+        let vault: Vault = env
+            .storage()
+            .persistent()
+            .get(&vault_key)
+            .expect("Vault not found");
+        assert!(vault.creator == owner, "Only creator can configure block height buffer");
+        assert!(vault.is_active, "Vault not active");
+        assert!(
+            (1..=MAX_LEDGER_DELTA).contains(&min_block_delta),
+            "Block delta must be between 1 and the maximum ledger buffer"
+        );
+
+        let rel_key = DataKey::ReleaseState(vault_id);
+        let mut state: VaultReleaseState = env
+            .storage()
+            .persistent()
+            .get(&rel_key)
+            .unwrap();
+        state.min_block_delta = min_block_delta;
         env.storage().persistent().set(&rel_key, &state);
 
         Self::bump_persistent(&env, &vault_key);
@@ -711,7 +763,11 @@ impl SpooVaultStellar {
             .expect("Vault state missing");
         Self::bump_persistent(env, &rel_key);
 
-        let is_dead = env.ledger().timestamp() >= state.last_proof_of_life + state.inactivity_period;
+        let timestamp_threshold_met =
+            env.ledger().timestamp() >= state.last_proof_of_life + state.inactivity_period;
+        let block_delta_met =
+            env.ledger().sequence() >= state.last_proof_of_life_ledger + state.min_block_delta;
+        let is_dead = timestamp_threshold_met && block_delta_met;
 
         match condition {
             ReleaseCondition::LiveOnly => !is_dead,

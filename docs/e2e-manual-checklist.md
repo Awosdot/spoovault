@@ -43,7 +43,9 @@ Expected:
 ## 5. Release Policy Checks
 1. `live_only`: request should fail once post-death unlock is active.
 2. `emergency_only`: request works when emergency mode is on.
-3. `post_death_only`: request works after inactivity window passes.
+3. `post_death_only`: request should still fail once the inactivity window passes if the
+   configured block-height buffer has not also elapsed; it should succeed once both the
+   inactivity window and the block-height buffer have passed.
 
 ## 6. Reliability Checks
 1. During upload, verify status stages are shown.

@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 3,
     "nonce": 0
   },
   "auth": [
@@ -17,23 +17,20 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "Soroban Vault"
+                  "string": "Inheritance Vault"
                 },
                 {
-                  "string": "Stellar Soroban Secure Vault"
+                  "string": "Block height buffer default test"
                 },
                 {
                   "vec": [
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   ]
                 },
                 {
-                  "u32": 2
+                  "u32": 1
                 }
               ]
             }
@@ -42,7 +39,6 @@
         }
       ]
     ],
-    [],
     []
   ],
   "ledger": {
@@ -116,88 +112,6 @@
                           },
                           "val": {
                             "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "vault_id"
-                          },
-                          "val": {
-                            "u64": 1
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          518400
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-            "key": {
-              "vec": [
-                {
-                  "symbol": "Invites"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                }
-              ]
-            },
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "Invites"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                    }
-                  ]
-                },
-                "durability": "persistent",
-                "val": {
-                  "vec": [
-                    {
-                      "map": [
-                        {
-                          "key": {
-                            "symbol": "accepted"
-                          },
-                          "val": {
-                            "bool": false
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "expires_at"
-                          },
-                          "val": {
-                            "u64": 604800
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "guardian"
-                          },
-                          "val": {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                           }
                         },
                         {
@@ -398,7 +312,7 @@
                         "symbol": "approval_threshold"
                       },
                       "val": {
-                        "u32": 2
+                        "u32": 1
                       }
                     },
                     {
@@ -422,7 +336,7 @@
                         "symbol": "description"
                       },
                       "val": {
-                        "string": "Stellar Soroban Secure Vault"
+                        "string": "Block height buffer default test"
                       }
                     },
                     {
@@ -458,7 +372,7 @@
                         "symbol": "name"
                       },
                       "val": {
-                        "string": "Soroban Vault"
+                        "string": "Inheritance Vault"
                       }
                     }
                   ]
@@ -596,23 +510,20 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "Soroban Vault"
+                  "string": "Inheritance Vault"
                 },
                 {
-                  "string": "Stellar Soroban Secure Vault"
+                  "string": "Block height buffer default test"
                 },
                 {
                   "vec": [
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   ]
                 },
                 {
-                  "u32": 2
+                  "u32": 1
                 }
               ]
             }
@@ -659,7 +570,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "get_vault"
+                "symbol": "get_release_state"
               }
             ],
             "data": {
@@ -682,22 +593,30 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_vault"
+                "symbol": "get_release_state"
               }
             ],
             "data": {
               "map": [
                 {
                   "key": {
-                    "symbol": "approval_threshold"
+                    "symbol": "emergency_mode"
                   },
                   "val": {
-                    "u32": 2
+                    "bool": false
                   }
                 },
                 {
                   "key": {
-                    "symbol": "created_at"
+                    "symbol": "inactivity_period"
+                  },
+                  "val": {
+                    "u64": 2592000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "last_proof_of_life"
                   },
                   "val": {
                     "u64": 0
@@ -705,141 +624,19 @@
                 },
                 {
                   "key": {
-                    "symbol": "creator"
+                    "symbol": "last_proof_of_life_ledger"
                   },
                   "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                    "u32": 0
                   }
                 },
                 {
                   "key": {
-                    "symbol": "description"
+                    "symbol": "min_block_delta"
                   },
                   "val": {
-                    "string": "Stellar Soroban Secure Vault"
+                    "u32": 17280
                   }
-                },
-                {
-                  "key": {
-                    "symbol": "guardians"
-                  },
-                  "val": {
-                    "vec": [
-                      {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "id"
-                  },
-                  "val": {
-                    "u64": 1
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "is_active"
-                  },
-                  "val": {
-                    "bool": true
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "name"
-                  },
-                  "val": {
-                    "string": "Soroban Vault"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
-              },
-              {
-                "symbol": "get_invites"
-              }
-            ],
-            "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "get_invites"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "map": [
-                    {
-                      "key": {
-                        "symbol": "accepted"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "expires_at"
-                      },
-                      "val": {
-                        "u64": 604800
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "guardian"
-                      },
-                      "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "vault_id"
-                      },
-                      "val": {
-                        "u64": 1
-                      }
-                    }
-                  ]
                 }
               ]
             }

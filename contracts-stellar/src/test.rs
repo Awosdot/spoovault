@@ -1,5 +1,8 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, vec, Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    vec, Address, Env, String,
+};
 
 #[test]
 fn test_register_and_get_public_key() {
@@ -245,4 +248,256 @@ fn test_prove_life_and_emergency_mode() {
     client.configure_vault_release(&creator, &vault_id, &(60 * 24 * 60 * 60));
     let updated_state = client.get_release_state(&vault_id).unwrap();
     assert_eq!(updated_state.inactivity_period, 60 * 24 * 60 * 60);
+}
+
+#[test]
+fn test_block_height_buffer_defaults_on_create_vault() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Block height buffer default test");
+    let guardians = vec![&env, g1.clone()];
+
+    let creation_ledger = env.ledger().sequence();
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+
+    let state = client.get_release_state(&vault_id).unwrap();
+    assert_eq!(state.min_block_delta, DEFAULT_MIN_LEDGER_DELTA);
+    assert_eq!(state.last_proof_of_life_ledger, creation_ledger);
+}
+
+#[test]
+fn test_post_death_stays_locked_when_timestamp_met_but_block_delta_not() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Timestamp only");
+    let guardians = vec![&env, g1.clone()];
+
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+    client.configure_vault_release(&creator, &vault_id, &(24 * 60 * 60));
+
+    // Timestamp threshold is cleared, but only a single ledger has elapsed since
+    // creation, far short of the default 17,280-ledger block-height buffer.
+    env.ledger().with_mut(|li| {
+        li.timestamp += 24 * 60 * 60 + 1;
+        li.sequence_number += 1;
+    });
+
+    let unlocked = env.as_contract(&contract_id, || {
+        SpooVaultStellar::is_release_condition_satisfied(&env, vault_id, ReleaseCondition::PostDeathOnly)
+    });
+    assert!(!unlocked);
+}
+
+#[test]
+fn test_post_death_stays_locked_when_block_delta_met_but_timestamp_not() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Block delta only");
+    let guardians = vec![&env, g1.clone()];
+
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+    client.configure_block_height_buffer(&creator, &vault_id, &3);
+
+    // Block-height buffer is cleared, but the default 30-day inactivity period has
+    // not elapsed.
+    env.ledger().with_mut(|li| {
+        li.sequence_number += 5;
+    });
+
+    let unlocked = env.as_contract(&contract_id, || {
+        SpooVaultStellar::is_release_condition_satisfied(&env, vault_id, ReleaseCondition::PostDeathOnly)
+    });
+    assert!(!unlocked);
+}
+
+#[test]
+fn test_post_death_unlocks_when_both_thresholds_met() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Both thresholds");
+    let guardians = vec![&env, g1.clone()];
+
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+    client.configure_vault_release(&creator, &vault_id, &(24 * 60 * 60));
+    client.configure_block_height_buffer(&creator, &vault_id, &3);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp += 24 * 60 * 60 + 1;
+        li.sequence_number += 5;
+    });
+
+    let unlocked = env.as_contract(&contract_id, || {
+        SpooVaultStellar::is_release_condition_satisfied(&env, vault_id, ReleaseCondition::PostDeathOnly)
+    });
+    assert!(unlocked);
+}
+
+#[test]
+fn test_prove_life_resets_timestamp_and_block_checkpoints() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Proof of life reset");
+    let guardians = vec![&env, g1.clone()];
+
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+    client.configure_vault_release(&creator, &vault_id, &(24 * 60 * 60));
+    client.configure_block_height_buffer(&creator, &vault_id, &3);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp += 24 * 60 * 60 + 1;
+        li.sequence_number += 5;
+    });
+
+    assert!(env.as_contract(&contract_id, || {
+        SpooVaultStellar::is_release_condition_satisfied(&env, vault_id, ReleaseCondition::PostDeathOnly)
+    }));
+
+    client.prove_life(&creator, &vault_id);
+
+    let state = client.get_release_state(&vault_id).unwrap();
+    assert_eq!(state.last_proof_of_life, env.ledger().timestamp());
+    assert_eq!(state.last_proof_of_life_ledger, env.ledger().sequence());
+    assert!(!env.as_contract(&contract_id, || {
+        SpooVaultStellar::is_release_condition_satisfied(&env, vault_id, ReleaseCondition::PostDeathOnly)
+    }));
+}
+
+#[test]
+fn test_configure_block_height_buffer_updates_state() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Configure block height buffer");
+    let guardians = vec![&env, g1.clone()];
+
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+    client.configure_block_height_buffer(&creator, &vault_id, &500);
+
+    let state = client.get_release_state(&vault_id).unwrap();
+    assert_eq!(state.min_block_delta, 500);
+}
+
+// The four negative-path tests below call `SpooVaultStellar::configure_block_height_buffer`
+// directly inside `env.as_contract(...)` (bypassing `SpooVaultStellarClient`'s
+// contract-invocation dispatch) so that the expected panic unwinds normally under
+// `#[should_panic]` instead of aborting the test process the way a panic crossing the
+// client's contract-call boundary does, while still running with a valid storage context.
+
+#[test]
+#[should_panic(expected = "Block delta must be between 1 and the maximum ledger buffer")]
+fn test_configure_block_height_buffer_rejects_zero() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Rejects zero delta");
+    let guardians = vec![&env, g1.clone()];
+
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+    env.as_contract(&contract_id, || {
+        SpooVaultStellar::configure_block_height_buffer(env.clone(), creator, vault_id, 0);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Block delta must be between 1 and the maximum ledger buffer")]
+fn test_configure_block_height_buffer_rejects_above_max() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Rejects excessive delta");
+    let guardians = vec![&env, g1.clone()];
+
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+    env.as_contract(&contract_id, || {
+        SpooVaultStellar::configure_block_height_buffer(env.clone(), creator, vault_id, MAX_LEDGER_DELTA + 1);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Only creator can configure block height buffer")]
+fn test_configure_block_height_buffer_rejects_non_creator() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let g1 = Address::generate(&env);
+    env.mock_all_auths();
+
+    let name = String::from_str(&env, "Inheritance Vault");
+    let desc = String::from_str(&env, "Rejects non-creator");
+    let guardians = vec![&env, g1.clone()];
+
+    let vault_id = client.create_vault(&creator, &name, &desc, &guardians, &1);
+    env.as_contract(&contract_id, || {
+        SpooVaultStellar::configure_block_height_buffer(env.clone(), g1, vault_id, 500);
+    });
+}
+
+#[test]
+#[should_panic(expected = "Vault not found")]
+fn test_configure_block_height_buffer_rejects_nonexistent_vault() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, SpooVaultStellar);
+    let _client = SpooVaultStellarClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    env.mock_all_auths();
+
+    env.as_contract(&contract_id, || {
+        SpooVaultStellar::configure_block_height_buffer(env.clone(), creator, 999, 500);
+    });
 }

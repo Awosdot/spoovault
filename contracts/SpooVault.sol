@@ -79,6 +79,8 @@ contract SpooVault is ERC721, ISpooVault {
         bool emergencyMode;
         uint256 inactivityPeriod;
         uint256 lastProofOfLife;
+        uint256 minBlockDelta;
+        uint256 lastProofOfLifeBlock;
     }
 
     struct GuardianRemovalProposal {
@@ -133,6 +135,7 @@ contract SpooVault is ERC721, ISpooVault {
     error ProposalAlreadyExecuted();
     error ApprovalAlreadyGiven();
     error CannotSelfApproveAccess();
+    error InvalidBlockDelta();
 
     mapping(uint256 => Vault) public vaults;
     mapping(uint256 => Document) public documents;
@@ -162,6 +165,12 @@ contract SpooVault is ERC721, ISpooVault {
     mapping(uint256 => mapping(address => uint256)) private _documentAccessVersion;
     mapping(uint256 => VaultReleaseState) private _vaultReleaseStates;
 
+    // Block-height buffer defaults: a floor on how many blocks must also elapse since the
+    // last proof of life, so a miner/validator cannot unlock post-death release by drifting
+    // block.timestamp alone without real blocks (and thus real time) passing.
+    uint256 public constant DEFAULT_MIN_BLOCK_DELTA = 43_200;
+    uint256 public constant MAX_BLOCK_DELTA = 10_000_000;
+
     // Guardian rotation and threshold adjustment governance
     mapping(uint256 => mapping(address => GuardianRemovalProposal)) public guardianRemovalProposals;
     mapping(uint256 => mapping(uint256 => ThresholdUpdateProposal)) public thresholdUpdateProposals;
@@ -179,6 +188,7 @@ contract SpooVault is ERC721, ISpooVault {
     event NFTBurned(uint256 indexed tokenId);
     event AccessRevoked(uint256 indexed documentId, address indexed user);
     event VaultReleaseConfigured(uint256 indexed vaultId, uint256 inactivityPeriod);
+    event BlockHeightBufferConfigured(uint256 indexed vaultId, uint256 minBlockDelta);
     event ProofOfLifeRecorded(uint256 indexed vaultId, address indexed owner, uint256 timestamp);
     event EmergencyModeUpdated(uint256 indexed vaultId, bool enabled);
     event DocumentReleaseConditionSet(uint256 indexed documentId, ReleaseCondition condition);
@@ -263,7 +273,9 @@ contract SpooVault is ERC721, ISpooVault {
         _vaultReleaseStates[vaultId] = VaultReleaseState({
             emergencyMode: false,
             inactivityPeriod: 30 days,
-            lastProofOfLife: block.timestamp
+            lastProofOfLife: block.timestamp,
+            minBlockDelta: DEFAULT_MIN_BLOCK_DELTA,
+            lastProofOfLifeBlock: block.number
         });
 
         newVault.guardians.push(msg.sender);
@@ -417,6 +429,24 @@ contract SpooVault is ERC721, ISpooVault {
     }
 
     /**
+     * @dev Configure the minimum number of blocks that must also elapse since the last
+     *      proof of life before post-death release can unlock, alongside the timestamp
+     *      threshold. Mitigates miners/validators manipulating block.timestamp to unlock
+     *      post-death release without real blocks having passed.
+     */
+    function configureBlockHeightBuffer(uint256 vaultId, uint256 minBlockDelta) external {
+        if (vaults[vaultId].id == 0) revert VaultNotExist();
+        if (vaults[vaultId].creator != msg.sender) revert OnlyVaultCreator();
+        if (!vaults[vaultId].isActive) revert VaultNotActive();
+        if (minBlockDelta == 0 || minBlockDelta > MAX_BLOCK_DELTA) {
+            revert InvalidBlockDelta();
+        }
+
+        _vaultReleaseStates[vaultId].minBlockDelta = minBlockDelta;
+        emit BlockHeightBufferConfigured(vaultId, minBlockDelta);
+    }
+
+    /**
      * @dev Owner heartbeat to keep vault in live mode.
      */
     function proveLife(uint256 vaultId) external {
@@ -425,6 +455,7 @@ contract SpooVault is ERC721, ISpooVault {
         if (!vaults[vaultId].isActive) revert VaultNotActive();
 
         _vaultReleaseStates[vaultId].lastProofOfLife = block.timestamp;
+        _vaultReleaseStates[vaultId].lastProofOfLifeBlock = block.number;
         emit ProofOfLifeRecorded(vaultId, msg.sender, block.timestamp);
     }
 
@@ -473,6 +504,18 @@ contract SpooVault is ERC721, ISpooVault {
             state.lastProofOfLife,
             unlocked
         );
+    }
+
+    /**
+     * @dev Fetch the block-height buffer portion of a vault's release state.
+     */
+    function getBlockHeightBuffer(uint256 vaultId) external view returns (
+        uint256 minBlockDelta,
+        uint256 lastProofOfLifeBlock
+    ) {
+        if (vaults[vaultId].id == 0) revert VaultNotExist();
+        VaultReleaseState storage state = _vaultReleaseStates[vaultId];
+        return (state.minBlockDelta, state.lastProofOfLifeBlock);
     }
 
     /**
@@ -1031,7 +1074,9 @@ contract SpooVault is ERC721, ISpooVault {
         if (state.inactivityPeriod == 0) {
             return false;
         }
-        return block.timestamp >= state.lastProofOfLife + state.inactivityPeriod;
+        bool timestampThresholdMet = block.timestamp >= state.lastProofOfLife + state.inactivityPeriod;
+        bool blockDeltaMet = block.number >= state.lastProofOfLifeBlock + state.minBlockDelta;
+        return timestampThresholdMet && blockDeltaMet;
     }
 
     function _isReleaseConditionSatisfied(uint256 documentId) internal view returns (bool) {

@@ -1025,6 +1025,22 @@
                       "val": {
                         "u64": 0
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "last_proof_of_life_ledger"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "min_block_delta"
+                      },
+                      "val": {
+                        "u32": 17280
+                      }
                     }
                   ]
                 }

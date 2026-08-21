@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
 const { ethers } = hre;
-import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { time, mine } from "@nomicfoundation/hardhat-network-helpers";
 
 describe("SpooVault EVM Contract Unit Tests", function () {
   let spooVault;
@@ -148,6 +148,154 @@ describe("SpooVault EVM Contract Unit Tests", function () {
 
       const pending = await spooVault.getPendingInvites(guardian1.address);
       expect(pending.length).to.equal(0);
+    });
+  });
+
+  describe("Post-Death Release Block-Height Buffer", function () {
+    const ONE_DAY = 24 * 60 * 60;
+    const POST_DEATH_ONLY = 3;
+    const ACCESS_LEVEL_READ = 0;
+
+    async function createVaultWithPostDeathDocument() {
+      await spooVault.connect(owner).createVault("Inheritance Vault", "Desc", [guardian1.address], 1);
+      const vaultId = 1;
+
+      await spooVault.connect(owner).addDocumentWithReleaseCondition(
+        vaultId,
+        "encrypted-metadata",
+        "QmTestHash",
+        ACCESS_LEVEL_READ,
+        POST_DEATH_ONLY
+      );
+      const documentId = 1;
+
+      await spooVault.connect(owner).mintAccessToken(vaultId, beneficiary.address, "https://token.uri");
+
+      return { vaultId, documentId };
+    }
+
+    it("should default a new vault's block-height buffer to DEFAULT_MIN_BLOCK_DELTA at the creation block", async function () {
+      const tx = await spooVault.connect(owner).createVault("Inheritance Vault", "Desc", [guardian1.address], 1);
+      const receipt = await tx.wait();
+
+      const defaultDelta = await spooVault.DEFAULT_MIN_BLOCK_DELTA();
+      const [minBlockDelta, lastProofOfLifeBlock] = await spooVault.getBlockHeightBuffer(1);
+
+      expect(minBlockDelta).to.equal(defaultDelta);
+      expect(lastProofOfLifeBlock).to.equal(receipt.blockNumber);
+    });
+
+    it("should stay locked when the timestamp threshold is met but the block-height buffer is not", async function () {
+      const { vaultId, documentId } = await createVaultWithPostDeathDocument();
+
+      await spooVault.connect(owner).configureVaultRelease(vaultId, ONE_DAY);
+      await time.increase(ONE_DAY + 1); // mines a single block; far short of the default block delta
+
+      const state = await spooVault.getVaultReleaseState(vaultId);
+      expect(state.postDeathUnlocked).to.equal(false);
+
+      await expect(
+        spooVault.connect(beneficiary).requestAccess(documentId)
+      ).to.be.revertedWithCustomError(spooVault, "ReleaseConditionLocked");
+    });
+
+    it("should stay locked when the block-height buffer is met but the timestamp threshold is not", async function () {
+      const { vaultId, documentId } = await createVaultWithPostDeathDocument();
+
+      await spooVault.connect(owner).configureBlockHeightBuffer(vaultId, 3);
+      await mine(5); // satisfies the block delta long before the default 30-day inactivity period
+
+      const state = await spooVault.getVaultReleaseState(vaultId);
+      expect(state.postDeathUnlocked).to.equal(false);
+
+      await expect(
+        spooVault.connect(beneficiary).requestAccess(documentId)
+      ).to.be.revertedWithCustomError(spooVault, "ReleaseConditionLocked");
+    });
+
+    it("should unlock post-death release only once both the timestamp and block-height thresholds are met", async function () {
+      const { vaultId, documentId } = await createVaultWithPostDeathDocument();
+
+      await spooVault.connect(owner).configureVaultRelease(vaultId, ONE_DAY);
+      await spooVault.connect(owner).configureBlockHeightBuffer(vaultId, 3);
+
+      await time.increase(ONE_DAY + 1);
+      await mine(5);
+
+      const state = await spooVault.getVaultReleaseState(vaultId);
+      expect(state.postDeathUnlocked).to.equal(true);
+
+      await expect(spooVault.connect(beneficiary).requestAccess(documentId)).to.not.be.reverted;
+    });
+
+    it("should reset both the timestamp and block checkpoints on proveLife", async function () {
+      const guardians = [guardian1.address];
+      await spooVault.connect(owner).createVault("Inheritance Vault", "Desc", guardians, 1);
+      const vaultId = 1;
+
+      await spooVault.connect(owner).configureVaultRelease(vaultId, ONE_DAY);
+      await spooVault.connect(owner).configureBlockHeightBuffer(vaultId, 3);
+      await time.increase(ONE_DAY + 1);
+      await mine(5);
+
+      let state = await spooVault.getVaultReleaseState(vaultId);
+      expect(state.postDeathUnlocked).to.equal(true);
+
+      const tx = await spooVault.connect(owner).proveLife(vaultId);
+      const receipt = await tx.wait();
+
+      state = await spooVault.getVaultReleaseState(vaultId);
+      expect(state.postDeathUnlocked).to.equal(false);
+      expect(state.lastProofOfLife).to.equal((await ethers.provider.getBlock(receipt.blockNumber)).timestamp);
+
+      const [, lastProofOfLifeBlock] = await spooVault.getBlockHeightBuffer(vaultId);
+      expect(lastProofOfLifeBlock).to.equal(receipt.blockNumber);
+    });
+
+    it("should emit BlockHeightBufferConfigured and persist the new minBlockDelta", async function () {
+      const guardians = [guardian1.address];
+      await spooVault.connect(owner).createVault("Inheritance Vault", "Desc", guardians, 1);
+
+      await expect(spooVault.connect(owner).configureBlockHeightBuffer(1, 500))
+        .to.emit(spooVault, "BlockHeightBufferConfigured")
+        .withArgs(1, 500);
+
+      const [minBlockDelta] = await spooVault.getBlockHeightBuffer(1);
+      expect(minBlockDelta).to.equal(500);
+    });
+
+    it("should revert configureBlockHeightBuffer with a zero minBlockDelta", async function () {
+      const guardians = [guardian1.address];
+      await spooVault.connect(owner).createVault("Inheritance Vault", "Desc", guardians, 1);
+
+      await expect(
+        spooVault.connect(owner).configureBlockHeightBuffer(1, 0)
+      ).to.be.revertedWithCustomError(spooVault, "InvalidBlockDelta");
+    });
+
+    it("should revert configureBlockHeightBuffer above MAX_BLOCK_DELTA", async function () {
+      const guardians = [guardian1.address];
+      await spooVault.connect(owner).createVault("Inheritance Vault", "Desc", guardians, 1);
+      const maxDelta = await spooVault.MAX_BLOCK_DELTA();
+
+      await expect(
+        spooVault.connect(owner).configureBlockHeightBuffer(1, maxDelta + 1n)
+      ).to.be.revertedWithCustomError(spooVault, "InvalidBlockDelta");
+    });
+
+    it("should revert configureBlockHeightBuffer when called by a non-creator", async function () {
+      const guardians = [guardian1.address];
+      await spooVault.connect(owner).createVault("Inheritance Vault", "Desc", guardians, 1);
+
+      await expect(
+        spooVault.connect(guardian1).configureBlockHeightBuffer(1, 500)
+      ).to.be.revertedWithCustomError(spooVault, "OnlyVaultCreator");
+    });
+
+    it("should revert configureBlockHeightBuffer for a non-existent vault", async function () {
+      await expect(
+        spooVault.connect(owner).configureBlockHeightBuffer(999, 500)
+      ).to.be.revertedWithCustomError(spooVault, "VaultNotExist");
     });
   });
 });
